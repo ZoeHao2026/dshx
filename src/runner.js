@@ -1,6 +1,6 @@
 /** Spawn one official DSH headless process and fold its NDJSON stream into one outcome. */
 import { spawn, spawnSync } from 'node:child_process';
-import { DshxError, EXIT, mapDshFailure, protocolError, unavailable } from './errors.js';
+import { DshxError, EXIT, mapDshFailure, protocolError, redact, unavailable } from './errors.js';
 import { EventCollector, createLineDecoder } from './events.js';
 
 const STDERR_LIMIT = 64 * 1024;
@@ -42,6 +42,13 @@ export function killTree(pid) {
 
 function timeoutError(message, hint, details) {
   return new DshxError('TIMEOUT', message, { exitCode: EXIT.TIMEOUT, hint, details });
+}
+
+function attachSession(error, sessionId) {
+  if (sessionId && error instanceof DshxError) {
+    error.details = { ...(error.details ?? {}), sessionId };
+  }
+  return error;
 }
 
 /**
@@ -102,14 +109,33 @@ export async function runTask(options) {
   let interrupted;
   let stdoutFailure;
   let closed = false;
+  let resolveClose;
+  let forceCloseTimer;
 
   const closePromise = new Promise((resolve, reject) => {
+    resolveClose = resolve;
     child.once('error', reject);
     child.once('close', (code, signal) => {
       closed = true;
       resolve({ code, signal });
     });
   });
+
+  // A kill request must not make the CLI wait forever if the OS refuses to
+  // deliver a close event. Ten seconds is long enough for taskkill and short
+  // enough to keep a timed-out Codex command from hanging.
+  const scheduleForceClose = () => {
+    if (forceCloseTimer) return;
+    forceCloseTimer = setTimeout(() => {
+      if (closed) return;
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Best effort; the timeout error reports that close was not confirmed.
+      }
+      resolveClose({ code: null, signal: null, forced: true });
+    }, 10000);
+  };
 
   const decoder = createLineDecoder((line) => collector.handle(line));
 
@@ -132,7 +158,7 @@ export async function runTask(options) {
   });
   child.stderr.on('data', (chunk) => {
     const text = chunk.toString('utf8');
-    if (verbose) process.stderr.write(text);
+    if (verbose) process.stderr.write(redact(text));
     stderrTail = `${stderrTail}${text}`.slice(-STDERR_LIMIT);
   });
   child.stdin.on('error', () => {
@@ -150,19 +176,24 @@ export async function runTask(options) {
           if (timedOut || closed) return;
           timedOut = true;
           killTree(child.pid);
+          scheduleForceClose();
         }, timeoutSec * 1000)
       : undefined;
 
   const onSigint = () => {
+    if (closed) return;
     if (interrupted === undefined) {
       interrupted = 'SIGINT';
       killTree(child.pid);
+      scheduleForceClose();
     }
   };
   const onSigterm = () => {
+    if (closed) return;
     if (interrupted === undefined) {
       interrupted = 'SIGTERM';
       killTree(child.pid);
+      scheduleForceClose();
     }
   };
   const onExit = () => {
@@ -174,6 +205,7 @@ export async function runTask(options) {
 
   const cleanup = () => {
     if (timer) clearTimeout(timer);
+    if (forceCloseTimer) clearTimeout(forceCloseTimer);
     process.removeListener('SIGINT', onSigint);
     process.removeListener('SIGTERM', onSigterm);
     process.removeListener('exit', onExit);
@@ -191,8 +223,11 @@ export async function runTask(options) {
   const durationMs = Date.now() - startedAt;
 
   if (timedOut) {
+    const stopDetail = exit?.forced
+      ? 'a final SIGKILL was requested, but the child did not confirm exit within 10 seconds'
+      : 'its process tree was stopped';
     throw timeoutError(
-      `DSH did not finish within ${timeoutSec} seconds; its process tree was stopped.` +
+      `DSH did not finish within ${timeoutSec} seconds; ${stopDetail}.` +
         (collector.sessionId ? ` Session: ${collector.sessionId}.` : ''),
       'Increase --timeout for longer tasks, or split the task into smaller calls.',
       { sessionId: collector.sessionId, stderrTail, durationMs },
@@ -205,29 +240,42 @@ export async function runTask(options) {
     throw new DshxError('TERMINATED', 'DSH run terminated by SIGTERM.', { exitCode: EXIT.TERMINATED });
   }
   if (stdoutFailure) {
-    throw stdoutFailure;
+    throw attachSession(stdoutFailure, collector.sessionId);
   }
 
+  const failureContext = {
+    turnEndReason: collector.turnEndReason,
+    stderrTail,
+    exitCode: exit.code,
+    resumeRequested: Boolean(sessionId),
+    sessionStarted: Boolean(collector.sessionId),
+  };
+
   if (collector.error) {
-    throw mapDshFailure(collector.error, {
-      turnEndReason: collector.turnEndReason,
-      stderrTail,
-      exitCode: exit.code,
-    });
+    throw attachSession(mapDshFailure(collector.error, failureContext), collector.sessionId);
   }
 
   if (exit.code !== 0) {
-    throw mapDshFailure(undefined, {
-      turnEndReason: collector.turnEndReason,
-      stderrTail,
-      exitCode: exit.code,
-    });
+    throw attachSession(mapDshFailure(undefined, failureContext), collector.sessionId);
+  }
+
+  if (collector.turnEndReason && collector.turnEndReason !== 'completed') {
+    throw attachSession(
+      mapDshFailure(
+        { code: 'TASK_FAILED', message: `DSH turn ended with reason ${collector.turnEndReason}` },
+        failureContext,
+      ),
+      collector.sessionId,
+    );
   }
 
   if (collector.finalText === undefined) {
-    throw protocolError(
-      `DSH exited successfully without a final event${collector.turnEndReason ? ` (turn reason: ${collector.turnEndReason})` : ''}.`,
-      'The DSH version may not match the dshx event contract, or a plugin wrote to stdout.',
+    throw attachSession(
+      protocolError(
+        `DSH exited successfully without a final event${collector.turnEndReason ? ` (turn reason: ${collector.turnEndReason})` : ''}.`,
+        'The DSH version may not match the dshx event contract, or a plugin wrote to stdout.',
+      ),
+      collector.sessionId,
     );
   }
   if (!collector.sessionId) {

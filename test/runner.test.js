@@ -126,6 +126,19 @@ test('auth and missing-session failures map to exit code 3', { timeout: 20000 },
   }
 });
 
+test('resume start failures without a session event map to SESSION_UNAVAILABLE', { timeout: 20000 }, async () => {
+  const workspace = temporaryWorkspace();
+  const restore = setEnv({ FAKE_DSH_MODE: 'session-adoption' });
+  const { overlay, options } = await baseOptions(workspace, { sessionId: 'session-stale' });
+  try {
+    await assert.rejects(runTask(options), (error) => error.code === 'SESSION_UNAVAILABLE' && error.exitCode === 3);
+  } finally {
+    restore();
+    overlay.cleanup();
+    workspace.cleanup();
+  }
+});
+
 test('generic task failure maps to exit code 1', { timeout: 20000 }, async () => {
   const workspace = temporaryWorkspace();
   const restore = setEnv({ FAKE_DSH_MODE: 'fail' });

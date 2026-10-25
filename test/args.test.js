@@ -78,6 +78,7 @@ test('invalid enum values are rejected', () => {
   assert.throws(() => parse(['ask', '--reasoning-effort', 'bad', 'x']), (error) => error.code === 'INVALID_ARGUMENT');
   assert.throws(() => parse(['ask', '--timeout', 'nope', 'x']), (error) => error.code === 'INVALID_ARGUMENT');
   assert.throws(() => parse(['ask', '--profile', 'bad name', 'x']), (error) => error.code === 'INVALID_ARGUMENT');
+  assert.throws(() => parse(['ask', '--limit', '5', 'x']), (error) => error.code === 'INVALID_ARGUMENT');
 });
 
 test('sessions and doctor options', () => {

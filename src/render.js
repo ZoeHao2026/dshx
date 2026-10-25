@@ -93,20 +93,27 @@ export function renderFailure(error, options = {}) {
   const exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : EXIT.TASK_FAILED;
   const message = redact(error?.message ?? String(error));
   const hint = error?.hint ? redact(error.hint) : undefined;
+  const sessionId =
+    typeof error?.details?.sessionId === 'string' && error.details.sessionId
+      ? error.details.sessionId
+      : undefined;
 
   if (options.json) {
     const envelope = {
       schemaVersion: 1,
       ok: false,
+      ...(sessionId ? { sessionId } : {}),
       error: { code, message, ...(hint ? { hint } : {}) },
       exitCode,
     };
     process.stdout.write(`${JSON.stringify(envelope)}\n`);
+    if (sessionId) process.stderr.write(`dshx: partial session: ${sessionId}\n`);
     if (hint) process.stderr.write(`dshx: ${code}: ${message}\ndshx: hint: ${hint}\n`);
     return exitCode;
   }
 
   process.stderr.write(`dshx: ${code}: ${message}\n`);
+  if (sessionId) process.stderr.write(`dshx: partial session: ${sessionId} (resume with --session)\n`);
   if (hint) process.stderr.write(`dshx: hint: ${hint}\n`);
   if (options.verbose && error?.stack) process.stderr.write(`${redact(error.stack)}\n`);
   return exitCode;
@@ -124,6 +131,7 @@ export function renderSessions(rows, { json = false } = {}) {
           cwd: row.cwd,
           provider: row.provider,
           model: row.model,
+          permissionMode: row.permissionMode,
           at: row.at,
         })),
       })}\n`,

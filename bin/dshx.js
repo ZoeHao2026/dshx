@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** dshx executable entry. All logic lives in src/main.js. */
+import { redact } from '../src/errors.js';
 import { main } from '../src/main.js';
 
 process.stdout.on('error', (error) => {
@@ -12,7 +13,7 @@ process.stderr.on('error', () => {
 try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`dshx: INTERNAL_ERROR: ${error?.message ?? String(error)}\n`);
-  if (process.env.DSHX_DEBUG) process.stderr.write(`${error?.stack ?? ''}\n`);
+  process.stderr.write(`dshx: INTERNAL_ERROR: ${redact(error?.message ?? String(error))}\n`);
+  if (process.env.DSHX_DEBUG) process.stderr.write(`${redact(error?.stack ?? '')}\n`);
   process.exitCode = 1;
 }

@@ -82,11 +82,13 @@ test('renderFailure writes a JSON envelope and returns its exit code', () => {
   const error = new DshxError('AUTH_UNAVAILABLE', 'no login', {
     exitCode: 3,
     hint: 'sign in',
+    details: { sessionId: 'session-partial' },
   });
   const run = capture(() => renderFailure(error, { json: true }));
   const parsed = JSON.parse(run.stdout);
   assert.equal(run.code, 3);
   assert.equal(parsed.ok, false);
+  assert.equal(parsed.sessionId, 'session-partial');
   assert.equal(parsed.error.code, 'AUTH_UNAVAILABLE');
   assert.equal(parsed.exitCode, 3);
 });

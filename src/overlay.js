@@ -48,7 +48,11 @@ export function writeOverlay(overlay) {
     path: file,
     directory,
     cleanup() {
-      fs.rmSync(directory, { recursive: true, force: true });
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // Temp cleanup is best effort; it must never override the task result.
+      }
     },
   };
 }

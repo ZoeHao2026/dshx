@@ -23,7 +23,7 @@ function readText(file) {
  * @param {{
  *   dsh?: string, dshHome?: string, profile: string, provider: string, model: string,
  *   reasoningEffort: string, permissionMode: string, timeout?: number, live?: boolean,
- *   allowUnvalidatedVersion?: boolean, verbose?: boolean
+ *   allowUnvalidatedVersion?: boolean
  * }} options
  */
 export async function runDoctor(options) {
@@ -70,7 +70,11 @@ export async function runDoctor(options) {
   const credentialsText = readText(path.join(dshHome, '.credentials.yaml'));
   const grantPresent = credentialsText.includes('deepseek-account-platform/default') && /\btoken\s*:/.test(credentialsText);
   const envText = readText(path.join(dshHome, '.env'));
-  const apiKeyPresent = Boolean(process.env.DEEPSEEK_API_KEY?.trim()) || /^\s*DEEPSEEK_API_KEY\s*=/m.test(envText);
+  const projectEnvText = readText(path.join(process.cwd(), '.env'));
+  const apiKeyPresent =
+    Boolean(process.env.DEEPSEEK_API_KEY?.trim()) ||
+    /^\s*DEEPSEEK_API_KEY\s*=/m.test(envText) ||
+    /^\s*DEEPSEEK_API_KEY\s*=/m.test(projectEnvText);
   if (options.provider === 'deepseek-account') {
     if (grantPresent) add('account-grant', 'ok', 'stored DeepSeek account grant record present');
     else add('account-grant', 'fail', 'no stored DeepSeek account grant found');
@@ -127,7 +131,11 @@ export async function runDoctor(options) {
     } catch (error) {
       add('overlay', 'fail', detailOf(error));
     } finally {
-      overlayBundle?.cleanup();
+      try {
+        overlayBundle?.cleanup();
+      } catch {
+        // A temp-file cleanup failure must not replace the checks above.
+      }
     }
   }
 
@@ -158,7 +166,11 @@ export async function runDoctor(options) {
     } catch (error) {
       add('live', 'fail', redact(detailOf(error)));
     } finally {
-      liveOverlay?.cleanup();
+      try {
+        liveOverlay?.cleanup();
+      } catch {
+        // Keep the diagnostic result even if temp cleanup fails.
+      }
     }
   }
 

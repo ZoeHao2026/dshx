@@ -15,6 +15,16 @@ test('line decoder handles split chunks and a final line without newline', () =>
   ]);
 });
 
+test('line decoder preserves multibyte UTF-8 split across chunks', () => {
+  const lines = [];
+  const decoder = createLineDecoder((line) => lines.push(line));
+  const bytes = Buffer.from('{"type":"final","text":"汉字🙂"}\n', 'utf8');
+  for (const byte of bytes) decoder.push(Buffer.from([byte]));
+  decoder.end();
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).text, '汉字🙂');
+});
+
 test('line decoder rejects an oversized line', () => {
   const decoder = createLineDecoder(() => {}, { maxLineBytes: 4 });
   assert.throws(() => decoder.push('123456789'), (error) => error.code === 'PROTOCOL_ERROR');

@@ -65,7 +65,7 @@ function dumpEnvironment(dshHome) {
   return env;
 }
 
-function planFor({ located, options, cwd, dshHome, userPatches, overlay, expected, sessionId, prompt }) {
+function planFor({ located, options, cwd, dshHome, userPatches, overlay, expected, sessionId, prompt, permissionMode }) {
   return {
     dryRun: true,
     dshVersion: located.version,
@@ -74,7 +74,7 @@ function planFor({ located, options, cwd, dshHome, userPatches, overlay, expecte
     provider: options.provider,
     model: options.model,
     reasoningEffort: options.reasoningEffort,
-    permissionMode: options.permissionMode,
+    permissionMode,
     cwd,
     dshHome,
     userPatches,
@@ -152,6 +152,23 @@ async function runAsk(options) {
     sessionId = sessionRecord.sessionId;
   }
 
+  let permissionMode = options.permissionMode;
+  if (
+    continueMode &&
+    !options.permissionModeExplicit &&
+    sessionRecord &&
+    ['read-only', 'workspace-write', 'danger-full-access'].includes(sessionRecord.permissionMode)
+  ) {
+    permissionMode = sessionRecord.permissionMode;
+  }
+
+  if (options.verbose) {
+    warn(
+      `using DSH ${located.version} at ${located.bin}; profile=${options.profile}; ` +
+        `provider=${options.provider}; model=${options.model}; permission=${permissionMode}; cwd=${cwd}`,
+    );
+  }
+
   const overlayBundle = writeOverlay(overlay);
   try {
     if (dryRun) {
@@ -172,7 +189,7 @@ async function runAsk(options) {
         );
       }
       printPlan(
-        planFor({ located, options, cwd, dshHome, userPatches, overlay, expected, sessionId, prompt }),
+        planFor({ located, options, cwd, dshHome, userPatches, overlay, expected, sessionId, prompt, permissionMode }),
         { json: options.json },
       );
       return EXIT.OK;
@@ -187,7 +204,7 @@ async function runAsk(options) {
       dshHome,
       prompt,
       timeoutSec: options.timeout,
-      permissionMode: options.permissionMode,
+      permissionMode,
       progress: options.progress,
       verbose: options.verbose,
       sessionId,
@@ -202,7 +219,7 @@ async function runAsk(options) {
           profile: options.profile,
           provider: options.provider,
           model: options.model,
-          permissionMode: options.permissionMode,
+          permissionMode,
           ok: true,
         },
         { stateDir },
@@ -217,7 +234,7 @@ async function runAsk(options) {
         provider: options.provider,
         model: options.model,
         reasoningEffort: options.reasoningEffort,
-        permissionMode: options.permissionMode,
+        permissionMode,
         cwd,
         dshHome,
       },
@@ -240,7 +257,7 @@ async function runAsk(options) {
             profile: options.profile,
             provider: options.provider,
             model: options.model,
-            permissionMode: options.permissionMode,
+            permissionMode,
           },
           { stateDir },
         );
@@ -250,7 +267,11 @@ async function runAsk(options) {
     }
     return renderFailure(error, { json: options.json, verbose: options.verbose });
   } finally {
-    overlayBundle.cleanup();
+    try {
+      overlayBundle.cleanup();
+    } catch {
+      // Never turn a completed task into a failure because temp cleanup failed.
+    }
   }
 }
 
@@ -290,7 +311,6 @@ async function runDoctorCommand(options) {
     timeout: options.timeout,
     live: options.live,
     allowUnvalidatedVersion: options.allowUnvalidatedVersion,
-    verbose: options.verbose,
   });
   renderDoctor(report, { json: options.json });
   return report.ok ? EXIT.OK : EXIT.UNAVAILABLE;

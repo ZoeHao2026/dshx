@@ -156,15 +156,23 @@ export function locateDsh(options = {}) {
   checkPlatform();
 
   const candidates = [];
-  if (options.dsh) {
-    for (const candidate of explicitCandidates(options.dsh)) {
-      if (candidate) candidates.push({ bin: candidate, source: 'argument' });
+  const explicit = options.dsh
+    ? { value: options.dsh, source: '--dsh' }
+    : process.env.DSHX_DSH
+      ? { value: process.env.DSHX_DSH, source: 'DSHX_DSH' }
+      : undefined;
+  if (explicit) {
+    const resolved = explicitCandidates(explicit.value);
+    const matches = resolved.filter(isFile);
+    if (matches.length === 0) {
+      throw unavailable(
+        'DSH_UNAVAILABLE',
+        `The explicit DSH entry from ${explicit.source} was not found: ${explicit.value}` +
+          (resolved.length ? `\nChecked: ${resolved.join(', ')}` : ''),
+        'Fix the path. dshx never silently falls back to PATH or npm-global when an explicit location was given.',
+      );
     }
-  }
-  if (process.env.DSHX_DSH) {
-    for (const candidate of explicitCandidates(process.env.DSHX_DSH)) {
-      if (candidate) candidates.push({ bin: candidate, source: 'DSHX_DSH' });
-    }
+    for (const bin of matches) candidates.push({ bin, source: explicit.source });
   }
   for (const commandPath of findOnPath()) {
     for (const candidate of candidatesFromCommand(commandPath)) {

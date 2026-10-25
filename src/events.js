@@ -1,4 +1,5 @@
 /** Streaming parser for DSH headless --json NDJSON events. */
+import { StringDecoder } from 'node:string_decoder';
 import { bounded, protocolError, redact } from './errors.js';
 
 export const EVENT_TYPES = Object.freeze([
@@ -21,9 +22,13 @@ const DEFAULT_MAX_LINE_BYTES = 64 * 1024 * 1024;
  */
 export function createLineDecoder(onLine, { maxLineBytes = DEFAULT_MAX_LINE_BYTES } = {}) {
   let buffer = '';
+  const decoder = new StringDecoder('utf8');
   return {
     push(chunk) {
-      buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      buffer +=
+        typeof chunk === 'string'
+          ? chunk
+          : decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       let index = buffer.indexOf('\n');
       while (index >= 0) {
         let line = buffer.slice(0, index);
@@ -40,6 +45,7 @@ export function createLineDecoder(onLine, { maxLineBytes = DEFAULT_MAX_LINE_BYTE
       }
     },
     end() {
+      buffer += decoder.end();
       if (buffer.length === 0) return;
       const line = buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer;
       buffer = '';

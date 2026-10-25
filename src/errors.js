@@ -64,6 +64,7 @@ const AUTH_CODES = new Set([
   'ACCOUNT_TOKEN_INVALID',
   'ACCOUNT_QUOTA',
   'MISSING_CREDENTIAL',
+  'INVALID_CREDENTIAL',
   'PROVIDER_NOT_FOUND',
   'CAPABILITY_UNAVAILABLE',
 ]);
@@ -99,8 +100,18 @@ export function mapDshFailure(error, context = {}) {
   }
 
   const stderrText = context.stderrTail ?? '';
+  if (context.resumeRequested && context.sessionStarted !== true) {
+    return unavailable(
+      'SESSION_UNAVAILABLE',
+      `DSH could not start the requested session: ${message}${turn}${stderr}`,
+      'Run `dshx ask ...` to start a new session, or drop --session and retry. GUI sessions and sessions from another cwd/preset are not resumable through dshx.',
+    );
+  }
   if (!rawCode || rawCode === 'TASK_FAILED') {
-    if (/session[^\n]*does not exist|--session-id[^\n]*does not exist/i.test(stderrText)) {
+    if (
+      /session[^\n]*(does not exist|recorded in|working directory|agent preset|subagent|fork)/i.test(stderrText) ||
+      /--session-id[^\n]*does not exist/i.test(stderrText)
+    ) {
       return unavailable(
         'SESSION_UNAVAILABLE',
         `DSH could not resume the requested session: ${message}${turn}${stderr}`,

@@ -77,13 +77,21 @@ test('installed-style CLI: help, version, dry-run and JSON ask', { timeout: 3000
   }
 });
 
-test('CLI continue reuses the recorded session and caps oversized output', { timeout: 30000 }, () => {
+test('CLI continue inherits the recorded permission and caps oversized output', { timeout: 30000 }, () => {
   const workspace = makeWorkspace();
+  const firstCapture = path.join(workspace.root, 'first.json');
+  const secondCapture = path.join(workspace.root, 'second.json');
+  const thirdCapture = path.join(workspace.root, 'third.json');
   try {
-    const first = run(workspace, ['ask', '--dsh', fakeDsh, '--cwd', workspace.cwd, '--json', 'first'], {
-      FAKE_DSH_MODE: 'ok',
-      FAKE_DSH_SESSION_ID: 'session-cli-continue',
-    });
+    const first = run(
+      workspace,
+      ['ask', '--dsh', fakeDsh, '--cwd', workspace.cwd, '--permission-mode', 'read-only', '--json', 'first'],
+      {
+        FAKE_DSH_MODE: 'ok',
+        FAKE_DSH_SESSION_ID: 'session-cli-continue',
+        FAKE_DSH_CAPTURE: firstCapture,
+      },
+    );
     assert.equal(first.status, 0, first.stderr);
 
     const second = run(
@@ -93,6 +101,7 @@ test('CLI continue reuses the recorded session and caps oversized output', { tim
         FAKE_DSH_MODE: 'ok',
         FAKE_DSH_SESSION_ID: 'session-cli-continue',
         FAKE_DSH_SIZE: '200',
+        FAKE_DSH_CAPTURE: secondCapture,
       },
     );
     assert.equal(second.status, 0, second.stderr);
@@ -102,6 +111,33 @@ test('CLI continue reuses the recorded session and caps oversized output', { tim
     assert.equal(result.truncated, true);
     assert.ok(result.outputPath);
     assert.equal(fs.existsSync(result.outputPath), true);
+    assert.equal(result.permissionMode, 'read-only');
+    assert.equal(JSON.parse(fs.readFileSync(secondCapture, 'utf8')).env.DSH_PERMISSION_MODE, 'read-only');
+
+    const third = run(
+      workspace,
+      ['continue', '--dsh', fakeDsh, '--cwd', workspace.cwd, '--permission-mode', 'danger-full-access', '--json', 'third'],
+      {
+        FAKE_DSH_MODE: 'ok',
+        FAKE_DSH_SESSION_ID: 'session-cli-continue',
+        FAKE_DSH_CAPTURE: thirdCapture,
+      },
+    );
+    assert.equal(third.status, 0, third.stderr);
+    assert.equal(JSON.parse(third.stdout).permissionMode, 'danger-full-access');
+    assert.equal(JSON.parse(fs.readFileSync(thirdCapture, 'utf8')).env.DSH_PERMISSION_MODE, 'danger-full-access');
+  } finally {
+    workspace.cleanup();
+  }
+});
+
+test('explicit --dsh path does not silently fall back', { timeout: 30000 }, () => {
+  const workspace = makeWorkspace();
+  try {
+    const missing = run(workspace, ['ask', '--dsh', 'C:\\definitely-missing-dsh\\lib\\bin.js', '--json', 'hello']);
+    assert.equal(missing.status, 3, missing.stderr);
+    assert.equal(JSON.parse(missing.stdout).error.code, 'DSH_UNAVAILABLE');
+    assert.match(JSON.parse(missing.stdout).error.message, /explicit DSH entry/);
   } finally {
     workspace.cleanup();
   }

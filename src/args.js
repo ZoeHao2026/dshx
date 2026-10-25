@@ -29,7 +29,6 @@ const VALUE_FLAGS = new Map([
   ['--dsh-home', 'dshHome'],
   ['--timeout', 'timeout'],
   ['--max-output-bytes', 'maxOutputBytes'],
-  ['--limit', 'limit'],
 ]);
 
 const EFFORTS = new Set(['off', 'low', 'high', 'max']);
@@ -60,6 +59,7 @@ function defaultRunOptions(command) {
     model: RUN_DEFAULTS.model,
     reasoningEffort: RUN_DEFAULTS.reasoningEffort,
     permissionMode: RUN_DEFAULTS.permissionMode,
+    permissionModeExplicit: false,
     timeout: RUN_DEFAULTS.timeout,
     maxOutputBytes: RUN_DEFAULTS.maxOutputBytes,
     authOverlay: RUN_DEFAULTS.authOverlay,
@@ -135,7 +135,10 @@ function parseRun(command, args) {
         index += 1;
       }
       if (key === 'patches') options.patches.push(value);
-      else options[key] = value;
+      else {
+        options[key] = value;
+        if (key === 'permissionMode') options.permissionModeExplicit = true;
+      }
       continue;
     }
     positionals.push(token);
@@ -235,7 +238,6 @@ function parseDoctor(args) {
     command: 'doctor',
     json: false,
     live: false,
-    verbose: false,
     help: false,
     dsh: undefined,
     dshHome: undefined,
@@ -259,10 +261,6 @@ function parseDoctor(args) {
     }
     if (token === '--live') {
       options.live = true;
-      continue;
-    }
-    if (token === '--verbose') {
-      options.verbose = true;
       continue;
     }
     if (token === '--allow-unvalidated-version') {
@@ -391,7 +389,7 @@ Options:
   --patch FILE                  extra DSH overlay; repeatable
   --dsh FILE                    path to @deepseek-ai/dsh/lib/bin.js
   --dsh-home DIR                value for the child DSH_HOME
-  --timeout SECONDS             whole invocation deadline; 0 disables (default 1800)
+  --timeout SECONDS             DSH run deadline after locating/overlay setup; 0 disables (default 1800)
   --max-output-bytes N          cap printed answer; 0 disables (default 65536)
   --json                        print one JSON result envelope
   --progress                    print timestamped turn/step/tool summaries to stderr
@@ -428,10 +426,11 @@ Options:
 
 export const DOCTOR_HELP = `Usage: dshx doctor [options]
 
-Read-only checks: Node/platform, DSH location and version, DSH_HOME, the
-generated auth overlay against "dsh --dump-config", stored DeepSeek account
-grant, DEEPSEEK_API_KEY presence, state directory, and permission mode. No
-credential value is printed and no model request runs unless --live is given.
+Checks: Node/platform, DSH location and version, DSH_HOME, the generated auth
+overlay against "dsh --dump-config", stored DeepSeek account grant,
+DEEPSEEK_API_KEY presence, state directory, and permission mode. The dshx state
+directory and the DSH headless profile may be created if absent. No credential
+value is printed and no model request runs unless --live is given.
 
 Options:
   --json                        print one JSON envelope
@@ -444,7 +443,6 @@ Options:
   --reasoning-effort LEVEL      expected effort (default max)
   --permission-mode MODE        expected permission mode
   --timeout SECONDS             deadline for --live (default 120)
-  --verbose                     print extra diagnostics
   -h, --help                    show this help
 
 Exit code 0 means no failed check; 3 means a required check failed.`;

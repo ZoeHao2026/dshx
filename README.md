@@ -46,7 +46,9 @@ Codex (PowerShell)
 - Windows（v0.1 只支持 Windows PowerShell；WSL 原生 DSH 不在范围内）。
 - Node `^22.19` 或 `>=24`；DSH CLI 版本在 `0.2.0-rc.2`、`0.2.1-rc.2`、
   `0.2.1-rc.3` 白名单内（其他版本需 `--allow-unvalidated-version`）。
-- 已安装官方 DSH CLI：`npm i -g @deepseek-ai/dsh`（或桌面版自带的 CLI）。
+- 已安装官方 **npm** DSH CLI：`npm i -g @deepseek-ai/dsh`。dshx 需要
+  `@deepseek-ai/dsh/lib/bin.js`；DSH Desktop 的 Electron 启动器不是这个入口，
+  不能替代 npm CLI。
 
 克隆仓库并安装：
 
@@ -161,7 +163,7 @@ Codex 的 `exec_command` 支持运行中 session/poll；如果它把 `--progress
   `dshx doctor` 与 `dshx ask --dry-run` 每次都会重新校验，常规运行直接使用生成结果；
 - **不创建、不修改** DSH profile；headless profile 由 DSH 自己初始化。
 
-已在本机验证：真实账号链路成功返回 `OK`，`continue` 成功返回 `DONE`，会话 id 一致。
+已在开发环境验证：真实账号链路成功返回 `OK`，`continue` 成功返回 `DONE`，会话 id 一致。
 
 账号不可用时的 fallback：
 
@@ -205,7 +207,7 @@ dshx.cmd ask --permission-mode read-only "..."
 
 ## 会话
 
-- `ask` 每次创建新 headless 会话（DSH 生成 `session-<uuid>`）。
+- `ask`（不带 `--session`）每次创建新 headless 会话（DSH 生成 `session-<uuid>`）。
 - `continue` 按 `cwd + DSH_HOME + profile` 选择最近一次成功的 dshx 会话，传
   `--session-id` 续接；没有记录时退出 3，提示先 `ask`。
 - 显式续接：`dshx.cmd ask --session <id> "..."`。
@@ -213,7 +215,9 @@ dshx.cmd ask --permission-mode read-only "..."
   dshx 续接**。dshx 只续接自己创建的 headless 会话。
 - 记录在 `%USERPROFILE%\.dshx\sessions.jsonl`，只存 id/cwd/模型/权限/时间，不存 prompt。
 - 如果 `continue` 发现会话不可恢复，会追加 tombstone，避免反复选中坏记录。
-- 被截断的长答复全文保存在 `%USERPROFILE%\.dshx\runs\`。
+- 被截断的长答复全文保存在 `%USERPROFILE%\.dshx\runs\`。全文含原始答复，不会被额外
+  脱敏；状态文件/全文使用 0600/0700，但 Windows 上 mode bits 是 advisory，实际访问
+  控制由你的用户 ACL 决定，敏感内容请自行清理。
 
 ## 命令参考
 
@@ -240,7 +244,7 @@ dshx --help / --version
 | `--patch FILE` | — | 额外 DSH overlay，可重复；排在生成的 overlay 之后 |
 | `--dsh FILE` | 自动 | 指向 `...\@deepseek-ai\dsh\lib\bin.js` |
 | `--dsh-home DIR` | 继承/`~\.dsh` | 设置子进程 `DSH_HOME`（测试用） |
-| `--timeout SECONDS` | `1800` | 整体截止时间；`0` 表示无期限 |
+| `--timeout SECONDS` | `1800` | DSH 运行截止时间（不含本地定位/overlay 准备）；`0` 表示无期限 |
 | `--max-output-bytes N` | `65536` | 答复上限； `0` 表示不限制 |
 | `--json` | 否 | 输出单条 JSON envelope |
 | `--progress` | 否 | 把带时间戳的 turn/step/tool 摘要写到 stderr |
@@ -279,10 +283,14 @@ prompt 省略或为单独的 `-` 时从 stdin 读取（8 MiB 上限）；给出�
 {
   "schemaVersion": 1,
   "ok": false,
+  "sessionId": "session-...",
   "error": { "code": "AUTH_UNAVAILABLE", "message": "...", "hint": "..." },
   "exitCode": 3
 }
 ```
+
+`sessionId` 只在失败前已经创建/开始会话时出现（超时、turn 失败等）。可以用
+`dshx ask --session <id> "..."` 尝试继续，或在 DSH session 日志中检查。
 
 退出码：
 
@@ -300,7 +308,8 @@ prompt 省略或为单独的 `-` 时从 stdin 读取（8 MiB 上限）；给出�
 ## 工作原理
 
 1. 定位 `@deepseek-ai/dsh/lib/bin.js`，执行 `--version` 并检查白名单。
-2. 生成临时 overlay（0600），重新启用账号 rows 并设置模型。
+2. 生成临时 overlay（文件 mode 0600；Windows 上 mode bits 是 advisory，实际由
+   用户 ACL 控制），重新启用账号 rows 并设置模型。
 3. 启动：
 
    ```text
@@ -313,7 +322,8 @@ prompt 省略或为单独的 `-` 时从 stdin 读取（8 MiB 上限）；给出�
    - prompt 走 stdin；stdout 解析 NDJSON；stderr 保留最后 64 KiB 诊断。
 4. 只接受 `session`/`status`/`text`/`thinking`/`tool_call`/`tool_result`/`error`/`final`；
    插件写入 stdout 的非 JSON 行作为诊断噪声，不污染 final。
-5. 退出 0 + `final` + 无 `error` + `turn_end=completed` 才算成功；否则按错误码映射。
+5. 退出 0 + `final` + 无 `error` +（若出现 `turn_end`）`turn_end=completed` 才算成功；
+   否则按错误码映射。
 6. 成功后写会话记录；`--json`/文本渲染；超过输出上限时保存全文。
 
 ## 已知边界
@@ -367,7 +377,7 @@ npm link
 - `doctor` 的账号 grant 存在/缺失；
 - 截断与 JSON envelope。
 
-当前验证结果：43 项测试全部通过；真实账号 smoke test 返回 `OK`，`continue` 返回
+当前验证结果：48 项测试全部通过；真实账号 smoke test 返回 `OK`，`continue` 返回
 `DONE`，临时工作区写文件成功；真实超时返回 124；无 Codex 配置改动。
 
 ## 验证记录（开发机）

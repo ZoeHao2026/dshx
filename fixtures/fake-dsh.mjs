@@ -61,13 +61,25 @@ const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const prompt = Buffer.concat(chunks).toString('utf8');
 const capture = process.env.FAKE_DSH_CAPTURE;
-if (capture) fs.writeFileSync(capture, JSON.stringify({ argv, cwd: process.cwd(), prompt }));
+if (capture) {
+  fs.writeFileSync(capture, JSON.stringify({
+    argv,
+    cwd: process.cwd(),
+    prompt,
+    env: { DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE },
+  }));
+}
 const pidFile = process.env.FAKE_DSH_PID_FILE;
 if (pidFile) fs.writeFileSync(pidFile, String(process.pid));
 
 const mode = process.env.FAKE_DSH_MODE ?? 'ok';
 const sessionId = process.env.FAKE_DSH_SESSION_ID ?? `session-fake-${process.pid}`;
 const expectedPrompt = process.env.FAKE_DSH_EXPECT_PROMPT;
+
+if (mode === 'session-adoption') {
+  process.stderr.write('dsh: session "fake" was recorded in "C:\\other" but the current working directory is "C:\\work"\n');
+  process.exit(1);
+}
 
 emit({ type: 'session', sessionId, cwd: process.cwd() });
 emit({ type: 'status', phase: 'turn_start', turn: 1 });
