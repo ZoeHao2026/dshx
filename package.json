@@ -1,0 +1,41 @@
+{
+  "name": "dshx",
+  "version": "0.1.0",
+  "description": "Codex-facing CLI that delegates one task at a time to DeepSeek Harness (DSH).",
+  "license": "MIT",
+  "author": "ZoeHao2026",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZoeHao2026/dshx.git"
+  },
+  "homepage": "https://github.com/ZoeHao2026/dshx#readme",
+  "bugs": {
+    "url": "https://github.com/ZoeHao2026/dshx/issues"
+  },
+  "keywords": [
+    "codex",
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "cli",
+    "windows",
+    "agent"
+  ],
+  "type": "module",
+  "bin": {
+    "dshx": "./bin/dshx.js"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:unit": "node --test test/args.test.js test/overlay.test.js test/events.test.js test/sessions.test.js test/runner.test.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}
